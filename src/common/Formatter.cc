@@ -18,6 +18,7 @@
 #include "common/escape.h"
 #include "include/buffer.h"
 
+#include <algorithm>
 #include <fmt/format.h>
 #include <algorithm>
 #include <set>
