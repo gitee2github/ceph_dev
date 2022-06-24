@@ -505,6 +505,10 @@ if(HAVE_QATZIP)
   list(APPEND ceph_common_deps ${QATZIP_LIBRARIES})
 endif()
 
+if(HAVE_UADKZIP)
+  list(APPEND ceph_common_deps ${UADKZIP_LIBRARIES})
+endif()
+
 if(WITH_DPDK)
   list(APPEND ceph_common_deps common_async_dpdk)
 endif()

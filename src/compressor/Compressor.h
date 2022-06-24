@@ -27,6 +27,10 @@
   #include "QatAccel.h"
 #endif
 
+#ifdef HAVE_UADKZIP
+  #include "UadkCompressionAccel.h"
+#endif
+
 namespace TOPNSPC {
 
 class Compressor;
@@ -73,6 +77,11 @@ public:
 #ifdef HAVE_QATZIP
   bool qat_enabled;
   QatAccel qat_accel;
+#endif
+
+#ifdef HAVE_UADKZIP
+  bool uadk_cmprs_enabled;
+  UadkCompressionAccel uadk_cmprs_accel;
 #endif
 
   static const char* get_comp_alg_name(int a);

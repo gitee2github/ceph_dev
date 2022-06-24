@@ -279,6 +279,13 @@ if(WITH_QATZIP)
   set(HAVE_QATZIP ${QATZIP_FOUND})
 endif(WITH_QATZIP)
 
+option(WITH_UADKZIP "Enable UADKZIP" OFF)
+if(WITH_UADKZIP)
+  find_package(uadkzip REQUIRED)
+  set(HAVE_UADKZIP ${UADKZIP_FOUND})
+  message("HAVE_UADKZIP" ${HAVE_UADKZIP})
+endif(WITH_UADKZIP)
+
 # needs mds and? XXX
 option(WITH_LIBCEPHFS "libcephfs client library" ON)
 

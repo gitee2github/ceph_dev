@@ -174,6 +174,16 @@ int ZlibCompressor::compress(const bufferlist &in, bufferlist &out, boost::optio
   if (qat_enabled)
     return qat_accel.compress(in, out, compressor_message);
 #endif
+
+#ifdef HAVE_UADKZIP
+  if (uadk_cmprs_enabled) {
+    int uadk_ret = uadk_cmprs_accel.compress(in, out, compressor_message);
+    if (uadk_ret == 0) {
+      return uadk_ret;
+    }
+  }
+#endif
+
 #if __x86_64__ && defined(HAVE_NASM_X64_AVX2)
   if (isal_enabled)
     return isal_compress(in, out, compressor_message);
@@ -189,6 +199,15 @@ int ZlibCompressor::decompress(bufferlist::const_iterator &p, size_t compressed_
 #ifdef HAVE_QATZIP
   if (qat_enabled)
     return qat_accel.decompress(p, compressed_size, out, compressor_message);
+#endif
+
+#ifdef HAVE_UADKZIP
+  if (uadk_cmprs_enabled) {
+    int uadk_ret = uadk_cmprs_accel.decompress(p, compressed_size, out, compressor_message);
+    if (uadk_ret == 0) {
+      return uadk_ret;
+    }
+  }
 #endif
 
   int ret;
@@ -250,6 +269,16 @@ int ZlibCompressor::decompress(const bufferlist &in, bufferlist &out, boost::opt
   if (qat_enabled)
     return qat_accel.decompress(in, out, compressor_message);
 #endif
+
+#ifdef HAVE_UADKZIP
+  if (uadk_cmprs_enabled) {
+    int uadk_ret = uadk_cmprs_accel.decompress(in, out, compressor_message);
+    if (uadk_ret == 0) {
+      return uadk_ret;
+    }
+  }
+#endif
+
   auto i = std::cbegin(in);
   return decompress(i, in.length(), out, compressor_message);
 }
