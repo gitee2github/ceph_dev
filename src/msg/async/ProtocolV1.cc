@@ -1007,16 +1007,20 @@ CtPtr ProtocolV1::handle_message_footer(char *buffer, int r) {
 
   ceph::mono_time fast_dispatch_time;
 
+  uint64_t recv_bytes = cur_msg_size + sizeof(ceph_msg_header) + sizeof(ceph_msg_footer);
   if (connection->is_blackhole()) {
     ldout(cct, 10) << __func__ << " blackhole " << *message << dendl;
     message->put();
     goto out;
   }
-
+  if (cct->_conf.get_val<bool>("ms_async_auto_balance") &&
+      (message->get_type() == CEPH_MSG_OSD_OP ||
+      message->get_type() == MSG_OSD_REPOP)) {
+    connection->load.fetch_add(recv_bytes);
+    connection->worker->request_balance();
+  }
   connection->logger->inc(l_msgr_recv_messages);
-  connection->logger->inc(
-      l_msgr_recv_bytes,
-      cur_msg_size + sizeof(ceph_msg_header) + sizeof(ceph_msg_footer));
+  connection->logger->inc(l_msgr_recv_bytes, recv_bytes);
 
   messenger->ms_fast_preprocess(message);
   fast_dispatch_time = ceph::mono_clock::now();
@@ -2404,8 +2408,10 @@ CtPtr ProtocolV1::replace(const AsyncConnectionRef& existing,
             if (exproto->state == NONE) {
               existing->shutdown_socket();
               existing->cs = std::move(cs);
+			  existing->worker->unregister_conn(get_pointer(existing));
               existing->worker->references--;
               new_worker->references++;
+			  new_worker->register_conn(get_pointer(existing));
               existing->logger = new_worker->get_perf_counter();
               existing->worker = new_worker;
               existing->center = new_center;

@@ -69,6 +69,7 @@ class C_handle_read : public EventCallback {
   explicit C_handle_read(AsyncConnectionRef c): conn(c) {}
   void do_request(uint64_t fd_or_id) override {
     conn->process();
+    conn->migrate();
   }
 };
 
@@ -78,7 +79,7 @@ class C_handle_write : public EventCallback {
  public:
   explicit C_handle_write(AsyncConnectionRef c): conn(c) {}
   void do_request(uint64_t fd) override {
-    conn->handle_write();
+    conn->handle_write(fd);
   }
 };
 
@@ -124,7 +125,7 @@ AsyncConnection::AsyncConnection(CephContext *cct, AsyncMessenger *m, DispatchQu
     connect_timeout_us(cct->_conf->ms_connection_ready_timeout*1000*1000),
     inactive_timeout_us(cct->_conf->ms_connection_idle_timeout*1000*1000),
     msgr2(m2), state_offset(0),
-    worker(w), center(&w->center),read_buffer(nullptr)
+    worker(w), center(&w->center), read_buffer(nullptr), load(0)
 {
 #ifdef UNIT_TESTS_BUILT
   this->interceptor = m->interceptor;
@@ -144,6 +145,7 @@ AsyncConnection::AsyncConnection(CephContext *cct, AsyncMessenger *m, DispatchQu
     protocol = std::unique_ptr<Protocol>(new ProtocolV1(this));
   }
   logger->inc(l_msgr_created_connections);
+  worker->register_conn(this);
 }
 
 AsyncConnection::~AsyncConnection()
@@ -600,12 +602,17 @@ void AsyncConnection::_stop() {
   writeCallback.reset();
   dispatch_queue->discard_queue(conn_id);
   async_msgr->unregister_conn(this);
+  worker->unregister_conn(this);
   worker->release_worker();
 
   state = STATE_CLOSED;
   open_write = false;
 
   state_offset = 0;
+  if (dest_worker) {
+    dest_worker = nullptr;
+    async_msgr->get_stack()->finish_migration();
+  }
   // Make sure in-queue events will been processed
   center->dispatch_event_external(EventCallbackRef(new C_clean_handler(this)));
 }
@@ -701,12 +708,16 @@ void AsyncConnection::mark_down()
   protocol->stop();
 }
 
-void AsyncConnection::handle_write()
+void AsyncConnection::handle_write(uint64_t fd)
 {
   ldout(async_msgr->cct, 10) << __func__ << dendl;
+  if (unlikely(!fd && (center->in_thread() == 0))) {
+    center->dispatch_event_external(write_handler);
+    return;
+  }
   protocol->write_event();
 }
-
+		
 void AsyncConnection::handle_write_callback() {
   std::lock_guard<std::mutex> l(lock);
   last_active = ceph::coarse_mono_clock::now();
@@ -741,6 +752,62 @@ void AsyncConnection::cleanup() {
     delete delay_state;
     delay_state = NULL;
   }
+}
+
+void AsyncConnection::migrate(void) {
+  if(!dest_worker)
+    return;
+  std::lock_guard<std::mutex> locker(lock);
+  if (!is_connected()) {
+    dest_worker = nullptr;
+    async_msgr->get_stack()->finish_migration();
+    return;
+  }
+  EventCenter *new_center = &dest_worker->center;
+  for (auto &&t : register_time_events)
+    center->delete_time_event(t);
+  register_time_events.clear();
+  if (last_tick_id) {
+    center->delete_time_event(last_tick_id);
+    last_tick_id = 0;
+  }
+  center->delete_file_event(cs.fd(), EVENT_READABLE | EVENT_WRITABLE);
+  load = 0;
+  worker->references--;
+  logger->dec(l_msgr_active_connections);
+  dest_worker->references++;
+  worker->unregister_conn(this);
+  ldout(async_msgr->cct, 5) << __func__ << " migrate " << worker->id << " to " << dest_worker->id << " thread " << pthread_self() << dendl;
+  dest_worker->register_conn(this);
+  logger = dest_worker->get_perf_counter();
+  
+  write_lock.lock();
+  worker = dest_worker;
+  center = new_center;
+  if (delay_state)
+    delay_state->set_center(new_center);
+  write_lock.unlock();
+  
+  logger->inc(l_msgr_active_connections);
+  auto transfer_handler = [this]() mutable {
+    std::lock_guard<std::mutex> locker(lock);
+    if (!is_connected()) {
+      async_msgr->get_stack()->finish_migration();
+      return;
+    }
+    write_lock.lock();
+    if (open_write) {
+      center->create_file_event(cs.fd(), EVENT_WRITABLE, write_handler);
+    }
+    center->create_file_event(cs.fd(), EVENT_READABLE, read_handler);
+    last_tick_id = center->create_time_event(inactive_timeout_us, tick_handler);
+    center->dispatch_event_external(read_handler);
+    center->dispatch_event_external(write_handler);
+    write_lock.unlock();
+    async_msgr->get_stack()->finish_migration();
+  };
+  center->submit_to(center->get_id(), std::move(transfer_handler), true);
+  dest_worker = nullptr;
 }
 
 void AsyncConnection::wakeup_from(uint64_t id)

@@ -20,6 +20,8 @@
 #include "common/Cond.h"
 #include "common/errno.h"
 #include "PosixStack.h"
+#include "AsyncConnection.h"
+
 #ifdef HAVE_RDMA
 #include "rdma/RDMAStack.h"
 #endif
@@ -85,6 +87,7 @@ std::shared_ptr<NetworkStack> NetworkStack::create(CephContext *c,
     ceph_abort();
     return nullptr;
   }
+  stack->balance_interval = clock_type::now();
   
   const int InitEventNumber = 5000;
   for (unsigned worker_id = 0; worker_id < stack->num_workers; ++worker_id) {
@@ -92,6 +95,7 @@ std::shared_ptr<NetworkStack> NetworkStack::create(CephContext *c,
     int ret = w->center.init(InitEventNumber, worker_id, t);
     if (ret)
       throw std::system_error(-ret, std::generic_category());
+    w->balance_handler = new C_balance_msg(stack, w);
     stack->workers.push_back(w);
   }
 
@@ -203,4 +207,92 @@ void NetworkStack::drain()
   pool_spin.unlock();
   drain.wait();
   ldout(cct, 30) << __func__ << " end." << dendl;
+}
+
+uint64_t Worker::calculate_loads(std::map<AsyncConnection *, uint64_t> &loads) {
+  std::unique_lock<std::mutex> locker(conns_lock);
+  uint64_t sum = 0;
+  for (auto conn: conns) {
+    uint64_t load = conn->get_and_clear_load();
+    if (load == 0)
+      continue;
+    loads[conn] = load;
+    sum += load;
+  }
+  return sum;
+}
+
+void NetworkStack::balance(void)
+{
+  static pthread_t tid = 0;
+  
+  if(__sync_bool_compare_and_swap(&tid, 0, pthread_self()) == 0)
+    return;
+  if (migrating || clock_type::now() < balance_interval) {
+    tid = 0;
+    return;
+  }
+  
+  std::map<AsyncConnection *, uint64_t> conn_loads_map;
+  Worker * w_max = nullptr;
+  Worker * w_min = nullptr;
+  uint64_t load_max = 0;
+  uint64_t load_min = std::numeric_limits<int>::max();
+  uint64_t avg_load = 0;
+  unsigned num_workers = get_num_worker();
+  pool_spin.lock();
+  for (unsigned i = 0; i < num_workers; i++) {
+    uint64_t sum;
+    std::map<AsyncConnection *, uint64_t> loads;
+    sum = workers[i]->calculate_loads(loads);
+    if (sum > load_max) {
+      load_max = sum;
+      w_max = workers[i];
+      conn_loads_map.swap(loads);
+    }
+    loads.clear();
+    if (sum < load_min) {
+      load_min = sum;
+      w_min = workers[i];
+    }
+    avg_load += sum / num_workers;
+  }
+  pool_spin.unlock();
+  
+  balance_interval = clock_type::now() + std::chrono::milliseconds(cct->_conf->ms_async_balance_ms);
+  uint64_t delta = load_max - load_min;
+  if (!load_max || (delta < cct->_conf->ms_async_balance_ratio * load_max)) {
+    conn_loads_map.clear();
+    tid = 0;
+    return;
+  }
+  #define pow2(x) ((x) * (x))
+  uint64_t org_stdval = pow2(load_max - avg_load) + pow2(load_min - avg_load);
+  uint64_t min_stdval = org_stdval;
+  AsyncConnection *conn_opt = nullptr;
+  uint64_t conn_load = 0;
+  for (auto it = conn_loads_map.begin(); it != conn_loads_map.end(); it++) {
+    uint64_t load = it->second;
+    if (load >= delta)
+      continue;
+    uint64_t stdval = pow2(load_max - avg_load - load) + pow2(load_min - avg_load + load);
+    if (stdval < min_stdval) {
+      conn_opt = it->first;
+      min_stdval = stdval;
+      conn_load = load;
+    }
+  }
+  conn_loads_map.clear();
+  if (org_stdval == min_stdval) {
+    tid = 0;
+    return;
+  }
+  if (w_max->conns.find(conn_opt) != w_max->conns.end()) {
+    conn_opt->set_dest_worker(w_min);
+    migrating = 1;
+  } else {
+    ldout(cct, 0) << __func__ << " conns " << conn_opt << " is deregisted, do nothing." << dendl;
+  }
+  ldout(cct, 1) << __func__ << " stdval " << org_stdval << " new stdval " << min_stdval << " conn_opt " << conn_opt << " conn_laod " << conn_load << " num conns " << w_max->conns.size() << dendl;
+  tid = 0;
 }
