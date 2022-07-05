@@ -642,6 +642,8 @@ TEST(UADK, enc_uadk_dec_nouadk) {
       int res = hw->compress(in, out, compressor_message);
       EXPECT_EQ(res, 0);
       bufferlist after;
+      if (hw->uadk_cmprs_enabled == true)
+	hw->uadk_cmprs_enabled = false;
       res = sw->decompress(out, after, compressor_message);
       EXPECT_EQ(res, 0);
       bufferlist exp;
@@ -682,11 +684,14 @@ TEST(UADK, enc_nouadk_dec_uadk) {
       int res = sw->compress(in, out, compressor_message);
       EXPECT_EQ(res, 0);
       bufferlist after;
+      if (hw->uadk_cmprs_enabled == false)
+        hw->uadk_cmprs_enabled = true;
       res = hw->decompress(out, after, compressor_message);
       EXPECT_EQ(res, 0);
       bufferlist exp;
       exp.append(test, size);
       EXPECT_TRUE(exp.contents_equal(after));
+      hw->uadk_cmprs_enabled = false;
     }
   }
 }
