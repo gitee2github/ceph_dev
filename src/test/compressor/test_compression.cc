@@ -608,3 +608,92 @@ TEST(QAT, enc_noqat_dec_qat) {
 }
 
 #endif	// HAVE_QATZIP
+
+#ifdef HAVE_UADKZIP
+TEST(UADK, enc_uadk_dec_nouadk) {
+  const char* alg_collection[] = {"zlib"};
+
+  for (auto alg : alg_collection) {
+    g_conf().set_val("uadk_compressor_enabled", "true");
+    g_conf().set_val("compressor_zlib_winsize", "15");
+    g_ceph_context->_conf.apply_changes(nullptr);
+    CompressorRef hw = Compressor::create(g_ceph_context, alg);
+    if (hw == NULL) 
+      return;
+
+    g_conf().set_val("uadk_compressor_enabled", "false");
+    g_conf().set_val("compressor_zlib_winsize", "15");
+    g_ceph_context->_conf.apply_changes(nullptr);
+    CompressorRef sw = Compressor::create(g_ceph_context, alg);
+
+    //generate random buffer
+    for (int cnt = 0; cnt < 100; cnt++) {
+      srand(cnt + 1000);
+      int log2 = (rand()%18) + 1;
+      int size = (rand() % (1 << log2)) + 1;
+
+      char test[size];
+      for (int i = 0; i < size; ++i)
+	test[i] = rand()%256;
+      bufferlist in, out;
+      in.append(test, size);
+
+      boost::optional<int32_t> compressor_message;
+      int res = hw->compress(in, out, compressor_message);
+      EXPECT_EQ(res, 0);
+      bufferlist after;
+      if (hw->uadk_cmprs_enabled == true)
+	hw->uadk_cmprs_enabled = false;
+      res = sw->decompress(out, after, compressor_message);
+      EXPECT_EQ(res, 0);
+      bufferlist exp;
+      exp.append(test, size);
+      EXPECT_TRUE(exp.contents_equal(after));
+    }
+  }
+}
+
+TEST(UADK, enc_nouadk_dec_uadk) {
+  const char* alg_collection[] = {"zlib"};
+
+  for (auto alg : alg_collection) {
+    g_conf().set_val("uadk_compressor_enabled", "true");
+    g_conf().set_val("compressor_zlib_winsize", "15");
+    g_ceph_context->_conf.apply_changes(nullptr);
+    CompressorRef hw = Compressor::create(g_ceph_context, alg);
+    if (hw == NULL) 
+      return;
+    g_conf().set_val("uadk_compressor_enabled", "false");
+    g_conf().set_val("compressor_zlib_winsize", "15");
+    g_ceph_context->_conf.apply_changes(nullptr);
+    CompressorRef sw = Compressor::create(g_ceph_context, alg);
+
+    //generate random buffer
+    for (int cnt = 0; cnt < 100; cnt++) {
+      srand(cnt + 1000);
+      int log2 = (rand()%18) +1;
+      int size = (rand() % (1 << log2)) + 1;
+
+      char test[size];
+      for (int i = 0; i < size; ++i)
+        test[i] = rand()%256;
+      bufferlist in, out;
+      in.append(test, size);
+
+      boost::optional<int32_t> compressor_message;
+      int res = sw->compress(in, out, compressor_message);
+      EXPECT_EQ(res, 0);
+      bufferlist after;
+      if (hw->uadk_cmprs_enabled == false)
+        hw->uadk_cmprs_enabled = true;
+      res = hw->decompress(out, after, compressor_message);
+      EXPECT_EQ(res, 0);
+      bufferlist exp;
+      exp.append(test, size);
+      EXPECT_TRUE(exp.contents_equal(after));
+      hw->uadk_cmprs_enabled = false;
+    }
+  }
+}
+
+#endif //HAVE_UADKZIP

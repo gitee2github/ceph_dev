@@ -357,6 +357,9 @@
 /* Defined if Intel QAT compress/decompress is supported */
 #cmakedefine HAVE_QATZIP
 
+/* Defined if Hisi UADK compress/decompress is supported */
+#cmakedefine HAVE_UADKZIP
+
 /* Define if seastar is available. */
 #cmakedefine HAVE_SEASTAR
 

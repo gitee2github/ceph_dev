@@ -32,6 +32,18 @@ public:
     else
       qat_enabled = false;
 #endif
+
+#ifdef HAVE_UADKZIP
+    if (cct->_conf->compressor_zlib_winsize >= 9) {
+        if (cct->_conf->uadk_compressor_enabled && uadk_cmprs_accel.init())
+           uadk_cmprs_enabled = true;
+        else
+           uadk_cmprs_enabled = false;
+  }
+  else {
+    uadk_cmprs_enabled = false;
+  }
+#endif
   }
 
   int compress(const ceph::buffer::list &in, ceph::buffer::list &out, boost::optional<int32_t> &compressor_message) override;

@@ -86,6 +86,7 @@ OPTION(compressor_zlib_winsize, OPT_INT) //regular zlib compression winsize, not
 OPTION(compressor_zstd_level, OPT_INT) //regular zstd compression level
 
 OPTION(qat_compressor_enabled, OPT_BOOL)
+OPTION(uadk_compressor_enabled, OPT_BOOL)
 
 OPTION(plugin_crypto_accelerator, OPT_STR)
 

@@ -4,6 +4,11 @@ set(compressor_srcs
 if (HAVE_QATZIP)
   list(APPEND compressor_srcs QatAccel.cc)
 endif()
+
+if (HAVE_UADKZIP)
+  list(APPEND compressor_srcs UadkCompressionAccel.cc)
+endif()
+
 add_library(compressor_objs OBJECT ${compressor_srcs})
 
 ## compressor plugins
@@ -25,6 +30,10 @@ endif()
 add_library(compressor STATIC ${compressor_srcs})
 if(HAVE_QATZIP)
   target_link_libraries(compressor PRIVATE ${QATZIP_LIBRARIES})
+endif()
+
+if (HAVE_UADKZIP)
+  target_link_libraries(compressor PRIVATE ${UADKZIP_LIBRARIES})
 endif()
 
 set(ceph_compressor_libs
