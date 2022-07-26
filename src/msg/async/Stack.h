@@ -19,6 +19,7 @@
 
 #include "include/spinlock.h"
 #include "common/perf_counters.h"
+#include "common/ceph_time.h"
 #include "msg/msg_types.h"
 #include "msg/async/Event.h"
 
@@ -206,6 +207,7 @@ enum {
   l_msgr_last,
 };
 
+class AsyncConnection;
 class Worker {
   std::mutex init_lock;
   std::condition_variable init_cond;
@@ -220,6 +222,11 @@ class Worker {
 
   std::atomic_uint references;
   EventCenter center;
+  EventCallbackRef balance_handler;
+  bool requested = false;
+  
+  std::mutex conns_lock;
+  std::set<AsyncConnection *> conns;
 
   Worker(const Worker&) = delete;
   Worker& operator=(const Worker&) = delete;
@@ -254,6 +261,8 @@ class Worker {
       cct->get_perfcounters_collection()->remove(perf_logger);
       delete perf_logger;
     }
+    if (balance_handler)
+      delete balance_handler;
   }
 
   virtual int listen(entity_addr_t &addr, unsigned addr_slot,
@@ -290,12 +299,32 @@ class Worker {
     init_lock.unlock();
     done = false;
   }
+  void register_conn(AsyncConnection *conn) {
+    std::unique_lock<std::mutex> locker(conns_lock);
+    conns.insert(conn);
+  }
+  
+  void unregister_conn(AsyncConnection *conn) {
+    std::unique_lock<std::mutex> locker(conns_lock);
+    conns.erase(conn);
+  }
+  
+  uint64_t calculate_loads(std::map<AsyncConnection *, uint64_t> &loads);
+  void request_balance() {
+    if (requested)
+    	return;
+    center.dispatch_event_external(balance_handler);
+    requested = true;
+  }
 };
 
 class NetworkStack {
+  using clock_type = ceph::coarse_real_clock;
   unsigned num_workers = 0;
   ceph::spinlock pool_spin;
   bool started = false;
+  clock_type::time_point balance_interval;
+  bool migrating = 0;
 
   std::function<void ()> add_thread(unsigned i);
 
@@ -337,6 +366,11 @@ class NetworkStack {
     return num_workers;
   }
 
+  void balance(void);
+  void finish_migration() {
+    balance_interval = clock_type::now() + std::chrono::milliseconds(cct->_conf->ms_async_balance_ms);
+    migrating = 0;
+  }
   // direct is used in tests only
   virtual void spawn_worker(unsigned i, std::function<void ()> &&) = 0;
   virtual void join_worker(unsigned i) = 0;
@@ -345,4 +379,14 @@ class NetworkStack {
   virtual void ready() { };
 };
 
+class C_balance_msg : public EventCallback {
+  std::shared_ptr<NetworkStack> stack;
+  Worker *worker;
+  public:
+  explicit C_balance_msg(std::shared_ptr<NetworkStack> s, Worker *w): stack(s), worker(w) {}
+  void do_request(uint64_t fd) override {
+    worker->requested = false;
+    stack->balance();
+  }
+};
 #endif //CEPH_MSG_ASYNC_STACK_H

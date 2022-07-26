@@ -225,10 +225,13 @@ private:
   std::function<void(char *, ssize_t)> readCallback;
   std::optional<unsigned> pendingReadLen;
   char *read_buffer;
+  std::atomic_ulong load;
+  Worker *dest_worker = nullptr;
 
  public:
   // used by eventcallback
-  void handle_write();
+  void handle_write(uint64_t fd);
+  void migrate();
   void handle_write_callback();
   void process();
   void wakeup_from(uint64_t id);
@@ -237,6 +240,14 @@ private:
   void cleanup();
   PerfCounters *get_perf_counter() {
     return logger;
+  }
+
+  uint64_t get_and_clear_load() {
+    return load.exchange(0);
+  }
+
+  void set_dest_worker(Worker *w) {
+    dest_worker = w;
   }
 
   bool is_msgr2() const override;

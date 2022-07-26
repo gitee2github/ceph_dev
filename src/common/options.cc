@@ -1153,6 +1153,18 @@ std::vector<Option> get_global_options() {
     .set_description("Maximum threadpool size of AsyncMessenger")
     .add_see_also("ms_async_op_threads"),
 
+    Option("ms_async_auto_balance", Option::TYPE_BOOL, Option::LEVEL_DEV)
+    .set_default(false)
+    .set_description("Automatically balance work load between msgr-worker threads")
+
+    Option("ms_async_balance_ms", Option::TYPE_UINT, Option::LEVEL_DEV)
+    .set_default(80)
+    .set_description("Automatically balance Interval (millseconds)"),	
+	
+    Option("ms_async_balance_ratio", Option::TYPE_FLOAT, Option::LEVEL_DEV)
+    .set_default(0.8)
+    .set_description("Automatically balance ratio"),	
+		
     Option("ms_async_reap_threshold", Option::TYPE_UINT, Option::LEVEL_DEV)
     .set_default(5)
     .set_min(1)
