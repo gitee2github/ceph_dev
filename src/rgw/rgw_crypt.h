@@ -80,6 +80,9 @@ public:
 };
 
 static const size_t AES_256_KEYSIZE = 256 / 8;
+static const size_t AES_256_IVSIZE  = 128 / 8;
+static const size_t SM4_KEYSIZE     = 128 / 8;
+static const size_t SM4_IVSIZE      = 128 / 8;
 bool AES_256_ECB_encrypt(CephContext* cct,
                          const uint8_t* key,
                          size_t key_size,

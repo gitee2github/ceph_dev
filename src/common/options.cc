@@ -5772,6 +5772,11 @@ std::vector<Option> get_rgw_options() {
         "need to be atomic, and anything larger than this would require more than a single "
         "operation."),
 
+    Option("rgw_crypt_chunk_size", Option::TYPE_SIZE, Option::LEVEL_ADVANCED)
+    .set_default(4096)
+    .set_min(4096)
+    .set_description("Set RGW crypt chunk size"),
+
     Option("rgw_put_obj_min_window_size", Option::TYPE_SIZE, Option::LEVEL_ADVANCED)
     .set_default(16_M)
     .set_description("The minimum RADOS write window size (in bytes).")
@@ -7138,6 +7143,11 @@ std::vector<Option> get_rgw_options() {
     Option("rgw_crypt_s3_kms_encryption_keys", Option::TYPE_STR, Option::LEVEL_DEV)
     .set_default("")
     .set_description(""),
+
+    Option("rgw_crypt_s3_kms_algorithm", Option::TYPE_STR, Option::LEVEL_ADVANCED)
+    .set_default("aes")
+    .set_enum_allowed({"aes", "sm4"})
+    .set_description("rgw s3 SSE-KMS algorithm, aes or sm4, Default is aes alg."),
 
     Option("rgw_crypt_vault_auth", Option::TYPE_STR, Option::LEVEL_ADVANCED)
     .set_default("token")

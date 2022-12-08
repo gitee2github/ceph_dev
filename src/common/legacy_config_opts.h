@@ -1241,6 +1241,7 @@ OPTION(rgw_max_attr_size, OPT_SIZE)
 OPTION(rgw_max_attrs_num_in_req, OPT_U64)
 
 OPTION(rgw_max_chunk_size, OPT_INT)
+OPTION(rgw_crypt_chunk_size, OPT_INT)
 OPTION(rgw_put_obj_min_window_size, OPT_INT)
 OPTION(rgw_put_obj_max_window_size, OPT_INT)
 OPTION(rgw_max_put_size, OPT_U64)
@@ -1527,6 +1528,7 @@ OPTION(rgw_crypt_kmip_s3_key_template, OPT_STR) // sse-s3; kmip key names
 
 OPTION(rgw_crypt_s3_kms_encryption_keys, OPT_STR) // extra keys that may be used for aws:kms
                                                       // defined as map "key1=YmluCmJvb3N0CmJvb3N0LQ== key2=b3V0CnNyYwpUZXN0aW5nCg=="
+OPTION(rgw_crypt_s3_kms_algorithm, OPT_STR)  // SSE-KMS encryption algorithm, support aes and sm4
 OPTION(rgw_crypt_suppress_logs, OPT_BOOL)   // suppress logs that might print customer key
 OPTION(rgw_list_bucket_min_readahead, OPT_INT) // minimum number of entries to read from rados for bucket listing
 
