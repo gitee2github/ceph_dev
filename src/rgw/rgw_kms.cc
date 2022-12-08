@@ -765,16 +765,30 @@ static int get_actual_key_from_conf(CephContext *cct,
   }
 
   if (master_key.length() == AES_256_KEYSIZE) {
-    uint8_t _actual_key[AES_256_KEYSIZE];
-    if (AES_256_ECB_encrypt(cct,
-        reinterpret_cast<const uint8_t*>(master_key.c_str()), AES_256_KEYSIZE,
-        reinterpret_cast<const uint8_t*>(key_selector.data()),
-        _actual_key, AES_256_KEYSIZE)) {
-      actual_key = std::string((char*)&_actual_key[0], AES_256_KEYSIZE);
-    } else {
-      res = -EIO;
+    std::string s3_kms_algorithm = cct->_conf->rgw_crypt_s3_kms_algorithm;
+    if (s3_kms_algorithm == "aes") {
+      uint8_t _actual_key[AES_256_KEYSIZE];
+      if (AES_256_ECB_encrypt(cct,
+          reinterpret_cast<const uint8_t*>(master_key.c_str()), AES_256_KEYSIZE,
+          reinterpret_cast<const uint8_t*>(key_selector.data()),
+          _actual_key, AES_256_KEYSIZE)) {
+        actual_key = std::string((char*)&_actual_key[0], AES_256_KEYSIZE);
+      } else {
+        res = -EIO;
+      }
+      ::ceph::crypto::zeroize_for_security(_actual_key, sizeof(_actual_key));
+    } else if (s3_kms_algorithm == "sm4") {
+      uint8_t _actual_key[SM4_KEYSIZE];
+      if (AES_256_ECB_encrypt(cct,
+          reinterpret_cast<const uint8_t*>(master_key.c_str()), AES_256_KEYSIZE,
+          reinterpret_cast<const uint8_t*>(key_selector.data()),
+          _actual_key, SM4_KEYSIZE)) {
+        actual_key = std::string((char*)&_actual_key[0], SM4_KEYSIZE);
+      } else {
+        res = -EIO;
+      }
+      ::ceph::crypto::zeroize_for_security(_actual_key, sizeof(_actual_key));
     }
-    ::ceph::crypto::zeroize_for_security(_actual_key, sizeof(_actual_key));
   } else {
     ldout(cct, 20) << "Wrong size for key=" << key_id << dendl;
     res = -EIO;
@@ -811,9 +825,11 @@ static int request_key_from_barbican(CephContext *cct,
     return -EACCES;
   }
 
+  std::string s3_kms_algorithm = cct->_conf->rgw_crypt_s3_kms_algorithm;
   if (secret_req.get_http_status() >=200 &&
       secret_req.get_http_status() < 300 &&
-      secret_bl.length() == AES_256_KEYSIZE) {
+      ((s3_kms_algorithm == "aes" && secret_bl.length() == AES_256_KEYSIZE) ||
+       (s3_kms_algorithm == "sm4" && secret_bl.length() == SM4_KEYSIZE))) {
     actual_key.assign(secret_bl.c_str(), secret_bl.length());
     secret_bl.zero();
     } else {
